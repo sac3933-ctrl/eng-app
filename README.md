@@ -19,7 +19,7 @@
 1. `words.json`을 메모장이나 VS Code로 엽니다. 단어 하나가 한 줄입니다.
 
    ```json
-   {"id": "e002", "w": "grade", "m": "학년; 성적", "pos": "n", "gr": 1, "c": "school", "ipa": "ɡreɪd", "kp": "그레이드", "ex": "I am in the seventh [grade].", "ko": "나는 7학년(중1)이야.", "n": 2},
+   {"id": "e002", "w": "grade", "m": "학년; 성적", "pos": "n", "gr": 1, "c": "school", "ipa": "ɡreɪd", "kp": "그레이드", "exs": [{"ex": "I am in the seventh [grade].", "ko": "나는 7학년(중1)이야."}], "n": 2},
    ```
 
    | 항목 | 뜻 | 꼭 필요? |
@@ -32,8 +32,7 @@
    | `pos` | 품사 `n v adj adv prep conj pron`, 두 개면 `n·v` | |
    | `c` | 분류 `school daily people feel action describe time nature society func` | |
    | `ipa`, `kp` | 발음기호(슬래시 없이), 한글 발음 | |
-   | `ex`, `ko` | 예문(외울 단어를 `[ ]`로 감싸기)과 해석 | |
-   | `exs` | 추가 예문 목록 `[{"ex": "...", "ko": "..."}]` | |
+   | `exs` | 예문 목록, **최대 3개**. `[{"ex": "예문", "ko": "해석"}, ...]` 외울 단어를 `[ ]`로 감싸요. 첫 번째가 대표 예문이고, 나머지는 "예문 더 보기"를 누르면 보여요. 문장 완성 문제는 이 중에서 무작위로 나와요 | 권장 |
    | `col`, `cm` | 덩어리 표현과 해석 | |
    | `forms` | 불규칙 동사 변화 `went - gone` | |
    | `note` | 주의점 한 줄 | |

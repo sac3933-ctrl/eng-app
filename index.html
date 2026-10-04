@@ -194,6 +194,8 @@ details.fold[open] summary::after{content:"접기"}
 .wd-ex .ko{font-size:13.5px;color:var(--muted)}
 .wd-ex.extra{background:transparent;border:1px dashed var(--line)}
 .wd-ex .link.small{font-size:12.5px}
+.ex-more{display:flex;flex-direction:column;gap:10px}
+.ex-toggle{align-self:flex-start;font-size:13.5px}
 .ex-tools{margin-top:2px}
 .pt-row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .btn.sm{padding:6px 11px;font-size:13px;border-radius:9px}
@@ -406,6 +408,25 @@ const exBlank=ex=>esc(ex).replace(/\[([^\]]+)\]/g,'<span class="blank"></span>')
 const exPlain=ex=>String(ex||'').replace(/\[([^\]]+)\]/g,'$1');
 const inBr=ex=>{const m=/\[([^\]]+)\]/.exec(ex||'');return m?m[1]:'';};
 const clone=x=>x==null?x:JSON.parse(JSON.stringify(x));
+/* examples: each word has up to 3 built-in examples in exs [{ex,ko}] (the first is the main one);
+   sentences the learner wrote are kept apart in mine [{ex,ko}] */
+const MAXEX=3;
+const hasBr=ex=>/\[[^\]]+\]/.test(ex||'');
+const exList=w=>(w&&Array.isArray(w.exs)?w.exs:[]).filter(x=>x&&x.ex).slice(0,MAXEX);
+const firstEx=w=>exList(w)[0]||{ex:'',ko:''};
+// stored data from before exs held every example: {ex,ko} was the main example and exs held extras
+// (built-in extras plus the learner's own, flagged mine). baseExs = the word's examples in words.json now.
+function legacyEx(item,baseExs){
+  const has=k=>Object.prototype.hasOwnProperty.call(item,k);
+  const b=baseExs||[],ex=has('ex')?item.ex:(b[0]||{}).ex,ko=has('ko')?item.ko:(b[0]||{}).ko;
+  const extras=has('exs')?(item.exs||[]):b.slice(1);
+  const o={...item};delete o.ex;delete o.ko;delete o.exs;
+  const list=[...(ex?[{ex,ko:ko||''}]:[]),...extras.filter(x=>x&&x.ex&&!x.mine).map(x=>({ex:x.ex,ko:x.ko||''}))];
+  const mine=[...(item.mine||[]),...extras.filter(x=>x&&x.ex&&x.mine).map(x=>({ex:x.ex,ko:x.ko||''}))];
+  if(list.length)o.exs=list;
+  if(mine.length)o.mine=mine;else delete o.mine;
+  return o;
+}
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];}return a;}
 const posLabel=p=>(p||'').split('·').map(x=>POS[x]||x).join('·');
 const ls={get(k,d){try{const v=localStorage.getItem('evb.'+k);return v==null?d:JSON.parse(v);}catch(e){return d;}},set(k,v){try{localStorage.setItem('evb.'+k,JSON.stringify(v));}catch(e){}}};
@@ -493,6 +514,16 @@ function diffBase(id,item){
   for(const [k,v] of Object.entries(item||{})){if(['id','pk','src','n'].includes(k))continue;if(!sameVal(v,b[k]))o[k]=clone(v);}
   return o;
 }
+// convert the learner's stored words and overrides to the exs/mine layout once
+function migrateExamples(db){
+  if((db.rd('meta/exv')||0)>=2)return;
+  const list=pre=>{const out=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith('evb.db:'+pre))out.push(k.slice(('evb.db:'+pre).length));}return out;};
+  for(const id of list('edits/')){const o=db.rd('edits/'+id);if(!o)continue;const b=S.baseW.get(id);
+    const n=legacyEx(o,b&&b.exs);if(b&&n.exs&&sameVal(n.exs.slice(0,MAXEX),b.exs))delete n.exs;
+    if(Object.keys(n).length)db.wr('edits/'+id,n);else localStorage.removeItem('evb.db:edits/'+id);}
+  for(const id of list('words/')){const w=db.rd('words/'+id);if(w&&w.w)db.wr('words/'+id,legacyEx(w,[]));}
+  db.wr('meta/exv',2);
+}
 // earlier versions copied every built-in word into the device; turn those copies into overrides once
 function migrateOld(db){
   const pre='evb.db:packs/',keys=[];
@@ -531,6 +562,7 @@ async function boot(){
   try{
     await loadBase();
     try{migrateOld(S.db);}catch(e){console.warn(e);}
+    try{migrateExamples(S.db);}catch(e){console.warn(e);}
     await loadAll();S.state='ok';
   }catch(e){console.warn(e);S.state='err';}
   render();
@@ -539,10 +571,11 @@ async function importBackup(){
   const data=S.imp&&S.imp.data;if(!data)return;const db=S.db;
   try{
     // "words" holds the learner's own words; older backups also listed built-in words, which become overrides
+    const old=!data.exv,conv=(f,id)=>old?legacyEx(f,(S.baseW.get(id)||{}).exs):f;
     for(const w of (Array.isArray(data.words)?data.words:[])){if(!w||!w.id||!w.w)continue;const {id,src,pk,...f}=w;
-      if(S.baseW.has(id)){const o=diffBase(id,f);if(Object.keys(o).length)db.wr('edits/'+id,o);}
-      else db.wr('words/'+id,f);}
-    for(const [id,o] of Object.entries(data.edits||{}))if(o&&typeof o==='object'&&S.baseW.has(id)){const d=diffBase(id,o);if(Object.keys(d).length)db.wr('edits/'+id,d);}
+      if(S.baseW.has(id)){const o=diffBase(id,conv(f,id));if(Object.keys(o).length)db.wr('edits/'+id,o);}
+      else db.wr('words/'+id,conv(f,id));}
+    for(const [id,o] of Object.entries(data.edits||{}))if(o&&typeof o==='object'&&S.baseW.has(id)){const d=diffBase(id,conv(o,id));if(Object.keys(d).length)db.wr('edits/'+id,d);}
     for(const [id,p] of Object.entries(data.progress||{}))if(p&&typeof p==='object')db.wr('prog/'+id,p);
     for(const [id,p] of Object.entries(data.log||{}))if(p&&p.days)db.wr('log/'+id,{days:p.days});
     if(data.stats&&typeof data.stats==='object')db.wr('meta/stats',data.stats);
@@ -724,12 +757,20 @@ function wordDetail(w,opt={}){
     <div class="wd-m">${esc(w.m)}</div>
     ${w.forms?`<div class="wd-forms"><span class="lbl">동사 변화</span>${esc(w.w)} - ${esc(w.forms)}</div>`:''}
     ${w.col?`<div class="wd-col"><span class="lbl">덩어리 표현</span><b>${esc(w.col)}</b> <span class="muted">${esc(w.cm||'')}</span></div>`:''}
-    ${w.ex?`<div class="wd-ex"><p class="en">${exHTML(w.ex)} ${spk(exPlain(w.ex),true)}</p><p class="ko">${esc(w.ko||'')}</p></div>`:''}
-    ${opt.extra===false?'':(w.exs||[]).map((x,i)=>`<div class="wd-ex extra"><p class="en">${exHTML(x.ex)} ${spk(exPlain(x.ex),true)}</p><p class="ko">${esc(x.ko||'')}${x.mine?' · <span class="chip">내 문장</span>':''}${opt.tools?` · <button class="link small" data-act="ex-del" data-id="${w.id}" data-i="${i}">지우기</button>`:''}</p></div>`).join('')}
+    ${examplesHTML(w,opt)}
     ${opt.tools?toolsHTML(w):''}
     ${w.note?`<div class="wd-note">${esc(w.note)}</div>`:''}
     ${groupHTML(w)}
   </div>`;
+}
+function examplesHTML(w,opt={}){
+  const xs=exList(w);
+  const row=(x,extra)=>`<div class="wd-ex"><p class="en">${exHTML(x.ex)} ${spk(exPlain(x.ex),true)}</p>${x.ko||extra?`<p class="ko">${esc(x.ko||'')}${extra||''}</p>`:''}</div>`;
+  let h=xs.length?row(xs[0]):'';
+  if(opt.extra===false)return h;
+  if(xs.length>1)h+=`<button class="link ex-toggle" data-act="ex-toggle" data-n="${xs.length-1}" aria-expanded="false">예문 더 보기 (${xs.length-1})</button><div class="ex-more" hidden>${xs.slice(1).map(x=>row(x)).join('')}</div>`;
+  h+=(w.mine||[]).map((x,i)=>row(x,` · <span class="chip">내 문장</span>${opt.tools?` · <button class="link small" data-act="mine-del" data-id="${w.id}" data-i="${i}">지우기</button>`:''}`).replace('class="wd-ex"','class="wd-ex extra"')).join('');
+  return h;
 }
 function toolsHTML(w){
   const my=S.my&&S.my.id===w.id?S.my:null;
@@ -779,7 +820,7 @@ function checkMine(id){
   render();
 }
 function spellSent(w,q){
-  const list=[{ex:w.ex,ko:w.ko},...(w.exs||[])].filter(x=>x&&x.ex&&/\[[^\]]+\]/.test(x.ex));
+  const list=exList(w).filter(x=>hasBr(x.ex));
   if(!list.length)return {ex:'',ko:''};
   if(q.sx==null||q.sx>=list.length)q.sx=Math.random()*list.length|0;
   return list[q.sx];
@@ -824,8 +865,8 @@ function renderBook(){
 
 /* ---------- speak ---------- */
 function pickShadow(){
-  let pool=learnedWords().filter(w=>w.ex);if(pool.length<5)pool=deckWords().filter(w=>w.ex);
-  if(!pool.length)return null;const prev=S.sp.sh;let w;for(let k=0;k<5;k++){w=pool[Math.random()*pool.length|0];if(w.id!==prev)break;}const n=(w.exs||[]).length;S.sp.shx=n&&Math.random()<n/(n+1)?Math.random()*n|0:null;return w.id;
+  let pool=learnedWords().filter(w=>exList(w).length);if(pool.length<5)pool=deckWords().filter(w=>exList(w).length);
+  if(!pool.length)return null;const prev=S.sp.sh;let w;for(let k=0;k<5;k++){w=pool[Math.random()*pool.length|0];if(w.id!==prev)break;}S.sp.shx=Math.random()*exList(w).length|0;return w.id;
 }
 const toks=s=>String(s||'').toLowerCase().replace(/[’']/g,"'").replace(/[^a-z0-9' ]+/g,' ').split(/\s+/).filter(Boolean);
 function compare(target,said){
@@ -842,7 +883,7 @@ function renderSpeak(){
   const sub=(k,l)=>`<button data-act="sp-sub" data-k="${k}" aria-pressed="${sp.sub===k}">${l}</button>`;
   let body='';
   if(sp.sub==='shadow'){
-    if(!sp.sh)sp.sh=pickShadow();const w0=sp.sh&&S.W.get(sp.sh);const w=w0&&sp.shx!=null&&w0.exs&&w0.exs[sp.shx]?{...w0,ex:w0.exs[sp.shx].ex,ko:w0.exs[sp.shx].ko}:w0;
+    if(!sp.sh)sp.sh=pickShadow();const w0=sp.sh&&S.W.get(sp.sh);const x0=w0&&(exList(w0)[sp.shx]||firstEx(w0));const w=w0&&x0.ex?{...w0,ex:x0.ex,ko:x0.ko}:null;
     if(!w)body='<div class="notice">예문이 있는 단어가 아직 없어요.</div>';
     else{const sent=exPlain(w.ex);
       body=`<section class="card">
@@ -919,7 +960,8 @@ function renderManage(){
         ${fld('forms','동사 변화 (과거 - 과거분사)')}
         <label>교과서 단원 (예: L1, L3)<input class="field" data-ef="lss" value="${esc((e.lss||[]).join(', '))}"></label>
         ${fld('col','덩어리 표현')}${fld('cm','덩어리 표현 해석')}
-        ${fld('ex','예문 (외울 단어를 [ ]로 감싸기)',true)}${fld('ko','예문 해석',true)}${fld('note','주의점',true)}
+        ${[0,1,2].map(i=>{const x=exList(e)[i]||{};return `<label class="full">예문 ${i+1}${i?' (없어도 돼요)':''} · 외울 단어를 [ ]로 감싸기<input class="field en" data-ex="${i}" value="${esc(x.ex||'')}"></label><label class="full">예문 ${i+1} 해석<input class="field" data-exko="${i}" value="${esc(x.ko||'')}"></label>`;}).join('')}
+        ${fld('note','주의점',true)}
       </div>
       <div class="btn-row"><button class="btn primary" data-act="edit-save">저장</button><button class="btn danger" data-act="edit-del">단어 지우기</button></div>
     </section>`;}
@@ -935,7 +977,7 @@ function renderManage(){
     <button class="btn primary" data-act="add-parse">미리 보기</button></div>
     ${mg.err?`<p class="small" style="color:var(--bad)">${esc(mg.err)}</p>`:''}
     ${mg.dups.length?`<p class="small muted">${mg.ls?lsName(mg.ls)+' 표시만 붙인 단어':'이미 있는 단어라 뺐어요'}: <span class="en">${mg.dups.map(esc).join(', ')}</span></p>`:''}
-    ${pv&&pv.length?`<div class="preview">${pv.map((w,i)=>`<label class="pv"><input type="checkbox" data-pv="${i}" ${w.on?'checked':''}><span><span class="en">${esc(w.w)}</span> <span class="muted small">${[posLabel(w.pos),w.ipa?'/'+w.ipa+'/':'',w.kp].filter(Boolean).map(esc).join(' · ')}</span><br><b>${esc(w.m)}</b><p class="en">${exHTML(w.ex)}</p><p>${esc(w.ko)}</p>${w.note?`<p>${esc(w.note)}</p>`:''}</span></label>`).join('')}
+    ${pv&&pv.length?`<div class="preview">${pv.map((w,i)=>`<label class="pv"><input type="checkbox" data-pv="${i}" ${w.on?'checked':''}><span><span class="en">${esc(w.w)}</span> <span class="muted small">${[posLabel(w.pos),w.ipa?'/'+w.ipa+'/':'',w.kp].filter(Boolean).map(esc).join(' · ')}</span><br><b>${esc(w.m)}</b>${firstEx(w).ex?`<p class="en">${exHTML(firstEx(w).ex)}</p><p>${esc(firstEx(w).ko)}</p>`:''}${w.note?`<p>${esc(w.note)}</p>`:''}</span></label>`).join('')}
       <div class="btn-row"><button class="btn primary" data-act="add-save">고른 단어 저장 (${pv.filter(x=>x.on).length})</button><button class="btn" data-act="add-cancel">취소</button></div>
       <p class="small muted">발음기호, 품사, 분류는 저장한 뒤 '단어 찾아서 고치기'에서 더 채울 수 있어요.</p></div>`:''}
   </section>
@@ -1017,7 +1059,7 @@ function startTest(ls){
   const all=shuffle(allWords().filter(w=>inTB(w,ls)));
   if(!all.length){toast('이 단원에 단어가 없어요.');return;}
   const pick=all.slice(0,30),n=pick.length,a=Math.ceil(n/3),b=Math.ceil((n-a)/2);
-  const withEx=pick.slice(a+b).sort((x,y)=>(y.ex?1:0)-(x.ex?1:0));
+  const withEx=pick.slice(a+b).sort((x,y)=>(exList(y).some(e=>hasBr(e.ex))?1:0)-(exList(x).some(e=>hasBr(e.ex))?1:0));
   const items=[...pick.slice(0,a).map(w=>({id:w.id,t:'q',qt:'ek',sec:'A'})),...pick.slice(a,a+b).map(w=>({id:w.id,t:'q',qt:'kw',sec:'B'})),...withEx.map(w=>({id:w.id,t:'q',qt:'spell',sec:'C'}))];
   S.psess={day:today(),mode:'test',title:lsName(ls)+' 단어 테스트',practice:true,test:true,ls,items,i:0,q:0,ok:0,miss:[]};
   saveNow('meta/psession',S.psess);openQuiz('practice');
@@ -1236,7 +1278,7 @@ async function backup(){
   if(!S.dl){toast('이 화면에서는 파일을 저장할 수 없어요.');return;}
   flush();
   const data={app:'중학 영단어장',exportedAt:new Date().toISOString(),settings:S.set,stats:S.stats,
-    dataVersion:S.base&&S.base.version||'',
+    dataVersion:S.base&&S.base.version||'',exv:2,
     words:[...S.W.values()].filter(w=>w.src==='user').map(w=>{const {src,...rest}=w;return rest;}),edits:S.E,
     progress:Object.fromEntries(S.P),log:S.LOG,dialogs:S.dlg.filter(d=>d.src!=='base').map(d=>{const {src,...rest}=d;return rest;})};
   try{await S.dl.save({filename:`영단어장-백업-${today()}.json`,data:JSON.stringify(data,null,1)});
@@ -1263,7 +1305,7 @@ function parseWords(){
   render();
 }
 function bracketIt(ex,w){if(!ex||/\[[^\]]+\]/.test(ex))return ex;const words=w.split(/\s+/).filter(x=>!/^(be|~|sb|sth|a|the)$/i.test(x));if(!words.length)return ex;const re=new RegExp('\\b('+words.map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('\\w*\\s+(?:\\w+\\s+)?')+'\\w*)','i');return re.test(ex)?ex.replace(re,'[$1]'):ex;}
-function normCard(x){const w=String(x.w).trim();return {w,pos:String(x.pos||''),ipa:String(x.ipa||'').replace(/^\/|\/$/g,''),kp:String(x.kp||''),m:String(x.m||''),c:CAT[x.c]?x.c:'daily',col:String(x.col||''),cm:String(x.cm||''),ex:bracketIt(String(x.ex||''),w),ko:String(x.ko||''),note:String(x.note||''),forms:String(x.forms||'')};}
+function normCard(x){const w=String(x.w).trim();return {w,pos:String(x.pos||''),ipa:String(x.ipa||'').replace(/^\/|\/$/g,''),kp:String(x.kp||''),m:String(x.m||''),c:CAT[x.c]?x.c:'daily',col:String(x.col||''),cm:String(x.cm||''),exs:x.ex?[{ex:bracketIt(String(x.ex),w),ko:String(x.ko||'')}]:[],note:String(x.note||''),forms:String(x.forms||'')};}
 function tagLesson(words,ls){let n=0;const keys=new Set(words.map(x=>x.toLowerCase()));
   for(const w of allWords()){if(!keys.has(w.w.toLowerCase())||(w.lss||[]).includes(ls))continue;saveWordField(w,{lss:[...(w.lss||[]),ls]});n++;}return n;}
 function nextN(){return Math.max(1000,...[...S.W.values()].map(w=>w.n||0));}
@@ -1285,7 +1327,10 @@ function saveEdit(){
   const w=S.W.get(S.mg.edit);if(!w)return;const f={};
   document.querySelectorAll('[data-ef]').forEach(el=>{let v=el.value.trim();if(el.dataset.ef==='gr')v=Number(v);if(el.dataset.ef==='lss')v=v.split(/[\s,]+/).map(x=>x.toUpperCase()).filter(x=>TB.lessons.some(l=>l[0]===x));f[el.dataset.ef]=v;});
   if(!f.w||!f.m){toast('영어와 뜻은 꼭 적어 주세요.');return;}
-  if(f.ex&&!/\[[^\]]+\]/.test(f.ex)){toast('예문에서 외울 단어를 [ ]로 감싸 주세요.');return;}
+  const exs=[];for(const el of document.querySelectorAll('[data-ex]')){const ex=el.value.trim(),k=el.dataset.ex;if(!ex)continue;
+    if(!hasBr(ex)){toast(`예문 ${Number(k)+1}에서 외울 단어를 [ ]로 감싸 주세요.`);return;}
+    const ko=document.querySelector(`[data-exko="${k}"]`);exs.push({ex,ko:ko?ko.value.trim():''});}
+  f.exs=exs;
   f.chk=true;saveWordField(w,f);
   S.mg.edit=null;toast('저장했어요.');render();
 }
@@ -1351,11 +1396,12 @@ const A={
   'imp-cancel'(){S.imp=null;render();},
   'pt-add'(el){const d=S.dlg.find(x=>x.id===S.sp.open);if(!d)return;const p=d.points[Number(el.dataset.i)];if(p)addFromDialog(d,[p]);},
   'pt-all'(){const d=S.dlg.find(x=>x.id===S.sp.open);if(d)addFromDialog(d,d.points);},
-  'ex-del'(el){const w=S.W.get(el.dataset.id);if(!w)return;const i=Number(el.dataset.i);const old=(w.exs||[]).slice();const exs=old.filter((_,k)=>k!==i);saveWordField(w,{exs});render();toast('예문을 지웠어요.',()=>{saveWordField(w,{exs:old});render();});},
+  'ex-toggle'(el){const box=el.nextElementSibling;if(!box)return;box.hidden=!box.hidden;el.setAttribute('aria-expanded',String(!box.hidden));el.textContent=box.hidden?`예문 더 보기 (${el.dataset.n})`:'예문 접기';},
+  'mine-del'(el){const w=S.W.get(el.dataset.id);if(!w)return;const i=Number(el.dataset.i);const old=(w.mine||[]).slice();saveWordField(w,{mine:old.filter((_,k)=>k!==i)});render();toast('내 문장을 지웠어요.',()=>{saveWordField(w,{mine:old});render();});},
   'my-open'(el){S.my={id:el.dataset.id,txt:'',ko:'',res:null};render();setTimeout(()=>{const t=$('#my-in');if(t)t.focus();},30);},
   'my-close'(){S.my=null;render();},
   'my-check'(el){checkMine(el.dataset.id);},
-  'my-save'(el){const w=S.W.get(el.dataset.id),my=S.my;if(!w||!my)return;const ex=hasWordIn(my.txt,w);if(!ex){toast(`문장에 '${w.w}'를 넣어 주세요.`);return;}const exs=[...(w.exs||[]),{ex,ko:(my.ko||'').trim(),mine:true}].slice(-9);saveWordField(w,{exs});S.my=null;toast('내 문장을 예문에 넣었어요.');render();},
+  'my-save'(el){const w=S.W.get(el.dataset.id),my=S.my;if(!w||!my)return;const ex=hasWordIn(my.txt,w);if(!ex){toast(`문장에 '${w.w}'를 넣어 주세요.`);return;}const mine=[...(w.mine||[]),{ex,ko:(my.ko||'').trim()}].slice(-9);saveWordField(w,{mine});S.my=null;toast('내 문장을 넣었어요.');render();},
   'add-save'(){saveAdded();},
   'add-cancel'(){S.mg.preview=null;render();},
   quit(){closeQuiz();},
@@ -1374,7 +1420,7 @@ const A={
   'sum-more'(){const kind=S.quiz.kind;closeQuiz();if(kind==='today')startToday();},
   'sp-sub'(el){S.sp.sub=el.dataset.k;S.sp.err='';render();},
   'sp-hide'(){S.sp.hide=!S.sp.hide;render();},
-  'sh-check'(){const w0=S.W.get(S.sp.sh);const ex=S.sp.shx!=null&&w0.exs&&w0.exs[S.sp.shx]?w0.exs[S.sp.shx].ex:w0.ex;const inp=$('#sh-in');S.sp.txt=inp?inp.value:'';if(!S.sp.txt.trim()){toast('들은 문장을 말하거나 써 주세요.');return;}S.sp.res=compare(exPlain(ex),S.sp.txt);render();},
+  'sh-check'(){const w0=S.W.get(S.sp.sh);if(!w0)return;const ex=(exList(w0)[S.sp.shx]||firstEx(w0)).ex;const inp=$('#sh-in');S.sp.txt=inp?inp.value:'';if(!S.sp.txt.trim()){toast('들은 문장을 말하거나 써 주세요.');return;}S.sp.res=compare(exPlain(ex),S.sp.txt);render();},
   'sh-next'(){S.sp.sh=pickShadow();S.sp.txt='';S.sp.res=null;render();},
   'qa-ex'(){S.sp.qaRes={kind:'ex'};const inp=$('#qa-in');if(inp)S.sp.qaTxt=inp.value;render();},
   'qa-next'(){S.sp.qa++;S.sp.qaTxt='';S.sp.qaRes=null;S.sp.err='';render();},

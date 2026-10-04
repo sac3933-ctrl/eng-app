@@ -51,11 +51,21 @@ for n, w in enumerate(words, 1):
     for p in (w.get('pos') or '').split('·'):
         if p and p not in POS:
             warn(f'{tag}: 품사(pos) "{p}"를 모르겠어요.')
-    if w.get('ex') and '[' not in w['ex']:
-        warn(f'{tag}: 예문에 외울 단어를 [ ]로 감싸지 않았어요. 문장 완성 문제에 쓰이지 않아요.')
-    for x in w.get('exs') or []:
-        if '[' not in (x.get('ex') or ''):
-            warn(f'{tag}: 추가 예문 "{x.get("ex", "")[:40]}"에 [ ]가 없어요.')
+    if 'ex' in w or 'ko' in w:
+        err(f'{tag}: 예문은 "ex"/"ko"가 아니라 "exs": [{{"ex": "...", "ko": "..."}}] 목록에 넣어요.')
+    exs = w.get('exs') or []
+    if not isinstance(exs, list):
+        err(f'{tag}: "exs"는 [ ]로 감싼 목록이어야 해요.')
+        exs = []
+    if len(exs) > 3:
+        err(f'{tag}: 예문이 {len(exs)}개예요. 최대 3개까지만 보여요.')
+    if not exs:
+        warn(f'{tag}: 예문이 없어요. 문장 완성·따라 말하기에 나오지 않아요.')
+    for i, x in enumerate(exs, 1):
+        if not isinstance(x, dict) or not x.get('ex'):
+            err(f'{tag}: 예문 {i}의 "ex"가 비어 있어요.')
+        elif '[' not in x['ex']:
+            warn(f'{tag}: 예문 {i}에 외울 단어를 [ ]로 감싸지 않았어요. 문장 완성 문제에 쓰이지 않아요.')
     for l in w.get('lss') or []:
         if l not in lessons:
             err(f'{tag}: 교과서 단원 "{l}"이 textbook.lessons에 없어요.')
