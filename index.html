@@ -282,6 +282,12 @@ textarea.field{resize:vertical;min-height:84px;line-height:1.5}
 .fix s{color:var(--bad)}
 .fix b{color:var(--ok);font-weight:600}
 .stars{color:var(--warn);font-size:20px;letter-spacing:2px}
+.chk{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.chk li{display:flex;gap:8px;align-items:flex-start;font-size:14px;line-height:1.45}
+.chk .mk{flex:none;width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin-top:1px}
+.chk .ok .mk{background:var(--ok-soft);color:var(--ok)}
+.chk .no .mk{background:var(--bad-soft);color:var(--bad)}
+.chk .tip .mk{background:var(--accent-soft);color:var(--accent)}
 
 /* manage */
 .preview{display:flex;flex-direction:column;gap:10px}
@@ -351,7 +357,7 @@ const LVCOL=['var(--line)','#F2B8B0','#F6D28B','#BFE3A0','#7FCB9A','#3AAA68','#1
 /* filled from words.json at boot */
 let QUESTIONS=[],TB={name:'',lessons:[]};
 const lsName=k=>(TB.lessons.find(x=>x[0]===k)||[k,k])[1];
-const SCENES=['학교에서 친구와','주말 약속 정하기','가게에서 물건 사기','길 묻고 답하기','식당에서 주문하기','공항·여행','보건실에서','동아리 가입하기'];
+let SCENES=[];
 
 const ic={
  spk:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
@@ -360,12 +366,12 @@ const ic={
 };
 
 /* ---------- state ---------- */
-const S={db:null,sampler:null,dl:null,state:'loading',tab:'today',base:null,baseW:new Map(),E:{},W:new Map(),P:new Map(),G:{},set:{...DEF_SET},stats:{streak:0,lastDay:'',best:0,days:{}},LOG:{},sess:null,psess:null,dlg:[],loadedAt:0,
+const S={db:null,dl:null,state:'loading',tab:'today',base:null,baseW:new Map(),E:{},W:new Map(),P:new Map(),G:{},set:{...DEF_SET},stats:{streak:0,lastDay:'',best:0,days:{}},LOG:{},sess:null,psess:null,dlg:[],loadedAt:0,
  bk:{q:'',gr:'all',c:'all',st:'all',ls:'all',open:null,limit:80},
  cal:null,calDay:null,
- sp:{sub:'shadow',sh:null,hide:false,res:null,txt:'',qa:0,qaTxt:'',qaRes:null,qaBusy:false,scene:SCENES[0],custom:'',busy:false,open:null,role:null,ko:true,err:''},
- exBusy:null,my:null,ptBusy:null,
- mg:{ls:'',txt:'',gr:1,busy:false,preview:null,dups:[],err:'',q:'',edit:null},
+ sp:{sub:'shadow',sh:null,hide:false,res:null,txt:'',qa:0,qaTxt:'',qaRes:null,scene:'all',open:null,role:null,ko:true,err:''},
+ my:null,ptBusy:null,
+ mg:{ls:'',txt:'',gr:1,preview:null,dups:[],err:'',q:'',edit:null},
  quiz:null};
 
 /* ---------- utils ---------- */
@@ -435,6 +441,7 @@ async function loadBase(){
   S.G=d.groups||{};
   QUESTIONS=Array.isArray(d.questions)?d.questions:[];
   TB=d.textbook&&Array.isArray(d.textbook.lessons)?d.textbook:{name:'',lessons:[]};
+  SCENES=Array.isArray(d.scenes)?d.scenes:[...new Set((d.dialogs||[]).map(x=>x.scene).filter(Boolean))];
 }
 async function loadAll(){
   const db=S.db;
@@ -500,7 +507,7 @@ const fileSaver={save:async({filename,data})=>{const blob=data instanceof Blob?d
 async function boot(){
   S.db=makeLocalDB();
   if(!S.db){S.state='nostore';render();return;}
-  S.dl=fileSaver;S.sampler=null;
+  S.dl=fileSaver;
   try{
     await loadBase();
     try{migrateOld(S.db);}catch(e){console.warn(e);}
@@ -688,56 +695,51 @@ function wordDetail(w,opt={}){
   </div>`;
 }
 function toolsHTML(w){
-  const busy=S.exBusy===w.id,my=S.my&&S.my.id===w.id?S.my:null;
+  const my=S.my&&S.my.id===w.id?S.my:null;
   let box='';
   if(my){const r=my.res;
     box=`<div class="my-box">
       <label class="small muted" for="my-in"><b class="en">${esc(w.w)}</b>을(를) 넣어서 나만의 문장을 만들어 보세요.</label>
       <textarea class="field en" id="my-in" rows="2" placeholder="Make a sentence with '${esc(w.w)}'" spellcheck="false">${esc(my.txt)}</textarea>
-      <div class="btn-row">${S.sampler?`<button class="btn primary" data-act="my-check" data-id="${w.id}" ${my.busy?'disabled':''}>${my.busy?'선생님이 보는 중…':'첨삭 받기'}</button>`:'<span class="small muted">첨삭은 Claude 안에서 연 단어장에서만 받을 수 있어요.</span>'}<button class="btn" data-act="my-close">닫기</button></div>
-      ${my.err?`<p class="small" style="color:var(--bad)">${esc(my.err)}</p>`:''}
-      ${r?`<div class="day-box">
-        <div class="row-between"><span class="stars" aria-label="별 ${r.stars}개">${'★'.repeat(r.stars)}${'☆'.repeat(3-r.stars)}</span><span class="small muted">${r.stars===3?'아주 잘 썼어요':r.stars===2?'좋아요, 조금만 다듬어요':'같이 고쳐 봐요'}</span></div>
-        ${r.good?`<p><span class="lbl">잘한 점</span>${esc(r.good)}</p>`:''}
-        ${r.fixes.length?r.fixes.map(f=>`<div class="fix"><span class="en"><s>${esc(f.from)}</s> → <b>${esc(f.to)}</b></span><span class="muted">${esc(f.why)}</span></div>`).join(''):'<p class="small muted">고칠 곳이 없어요!</p>'}
-        ${r.corrected?`<div><span class="lbl">완성 문장</span><p class="en">${exHTML(r.corrected)} ${spk(exPlain(r.corrected),true)}</p><p class="small muted">${esc(r.ko)}</p></div><div><button class="btn soft" data-act="my-save" data-id="${w.id}">이 문장을 예문에 넣기</button></div>`:''}
+      <div class="btn-row"><button class="btn primary" data-act="my-check" data-id="${w.id}">점검하기</button><button class="btn" data-act="my-close">닫기</button></div>
+      ${r?`<div class="day-box">${checksHTML(r.items)}
+        ${r.hasWord?`<label class="small muted" for="my-ko">우리말 뜻 (안 써도 돼요)</label><input class="field" id="my-ko" value="${esc(my.ko||'')}" placeholder="내 문장의 뜻">
+        <div class="btn-row">${TTS?`<button class="btn" data-act="say" data-t="${esc(my.txt)}">내 문장 듣기</button>`:''}<button class="btn soft" data-act="my-save" data-id="${w.id}">이 문장을 예문에 넣기</button></div>`:''}
       </div>`:''}
     </div>`;}
-  return `<div class="btn-row ex-tools">${S.sampler?`<button class="btn soft" data-act="ex-more" data-id="${w.id}" ${busy?'disabled':''}>${busy?'예문 만드는 중…':'예문 더 만들기'}</button>`:''}${my?'':`<button class="btn" data-act="my-open" data-id="${w.id}">내 문장 써 보기</button>`}</div>${box}`;
+  return my?box:`<div class="btn-row ex-tools"><button class="btn" data-act="my-open" data-id="${w.id}">내 문장 써 보기</button></div>`;
 }
-async function moreExamples(id){
-  const w=S.W.get(id);if(!w||!S.sampler)return;
-  S.exBusy=id;render();
-  const have=[w.ex,...(w.exs||[]).map(x=>x.ex)].filter(Boolean).map(exPlain);
-  const prompt=`너는 한국 중학생을 가르치는 영어 선생님이다. 단어 '${w.w}'(${posLabel(w.pos)}, 뜻: ${w.m})로 새 예문 3개를 만들어라.
-- 중학교 교과서 수준, 한 문장 12단어 이하.
-- 3개가 서로 다른 상황(학교, 일상, 감정·생각 등)이고, 뜻이 여럿이면 다른 뜻도 써 본다. 자주 쓰는 덩어리 표현${w.col?`(예: ${w.col})`:''}을 하나는 넣는다.
-- 문장 안의 그 단어(바뀐 모양 포함)를 [ ]로 감싼다.
-- ko: 자연스러운 한국어 해석(반말).
-- 이미 있는 예문과 겹치지 않게: ${have.join(' / ')}
-JSON 배열만 답한다: [{"ex":"I [borrowed] a book.","ko":"나는 책을 빌렸어."}]`;
-  try{const r=await S.sampler.json(prompt,{modelTier:'default'});
-    const add=(Array.isArray(r)?r:[]).filter(x=>x&&typeof x.ex==='string'&&/\[[^\]]+\]/.test(x.ex)).slice(0,3).map(x=>({ex:String(x.ex),ko:String(x.ko||'')}));
-    if(!add.length)throw {code:'invalid_json'};
-    const exs=[...(w.exs||[]),...add].slice(-9);
-    saveWordField(w,{exs});toast(`예문 ${add.length}개를 더했어요.`);
-  }catch(e){toast(sampleErr(e));}
-  S.exBusy=null;render();
+/* ---------- writing self-check (no AI: simple rules a beginner can act on) ---------- */
+// the sentence with the target word (or one of its verb forms) wrapped in [ ], or '' if it is not there
+function hasWordIn(text,w){
+  for(const f of [w.w,...String(w.forms||'').split(/\s*[-–,/]\s*/)]){if(!f||!f.trim())continue;const b=bracketIt(text,f.trim());if(b!==text)return b;}
+  return '';
 }
-async function checkMine(id){
-  const w=S.W.get(id),my=S.my;if(!w||!my)return;const inp=$('#my-in');my.txt=inp?inp.value.trim():my.txt;
-  if(!my.txt){my.err='먼저 문장을 써 보세요.';render();return;}
-  my.busy=true;my.err='';render();
-  const prompt=`너는 한국 중학생을 가르치는 친절하고 꼼꼼한 영어 선생님이다. 학생이 단어 '${w.w}'(뜻: ${w.m})를 넣어 만든 문장을 첨삭한다.
-학생 문장: ${my.txt}
-문법, 그 단어를 알맞게 썼는지, 대문자·문장부호를 본다. 칭찬을 먼저 한다.
-JSON만 답한다: {"stars":1~3 정수(3=아주 좋음),"good":"잘한 점 한 문장(한국어)","fixes":[{"from":"틀린 부분","to":"고친 표현","why":"짧은 한국어 설명"}],"corrected":"학생 문장을 최소한으로 고친 문장. 그 단어(바뀐 모양 포함)를 [ ]로 감싼다","ko":"고친 문장의 한국어 해석(반말)"}
-fixes는 최대 3개, 틀린 곳이 없으면 빈 배열.`;
-  try{const r=await S.sampler.json(prompt,{modelTier:'default'});
-    let cor=String(r&&r.corrected||'');if(cor&&!/\[[^\]]+\]/.test(cor)){const re=new RegExp('\\b('+w.w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\w*)','i');cor=cor.replace(re,'[$1]');}
-    my.res={stars:Math.max(1,Math.min(3,Number(r&&r.stars)||2)),good:String(r&&r.good||''),fixes:(r&&Array.isArray(r.fixes)?r.fixes:[]).slice(0,3).map(f=>({from:String(f.from||''),to:String(f.to||''),why:String(f.why||'')})),corrected:cor,ko:String(r&&r.ko||'')};
-  }catch(e){my.err=sampleErr(e);}
-  my.busy=false;render();
+function checkWriting(text,o={}){
+  const s=String(text||'').trim(),out=[],add=(k,msg)=>out.push({k,msg});
+  if(/[가-힣]/.test(s))add('no','우리말이 섞여 있어요. 영어로만 써 보세요.');
+  add(/^["'(]?[A-Z]/.test(s)?'ok':'no',/^["'(]?[A-Z]/.test(s)?'대문자로 시작했어요.':'문장의 첫 글자는 대문자로 써요.');
+  add(/[.!?]["')]?$/.test(s)?'ok':'no',/[.!?]["')]?$/.test(s)?'문장 끝에 문장부호를 찍었어요.':'문장 끝에 마침표(.)나 물음표(?)를 찍어요.');
+  if(/(^|[^A-Za-z'’])i([^A-Za-z'’]|$)/.test(s))add('no',"'나'를 뜻하는 I는 언제나 대문자로 써요.");
+  if(/[,.!?][A-Za-z]/.test(s))add('no','쉼표나 마침표 뒤에는 한 칸 띄어 써요.');
+  if(o.starter){const st=o.starter.split('/')[0].split('...')[0].trim().replace(/[.,]$/,'');
+    if(st.split(/\s+/).length>=2)add(s.toLowerCase().includes(st.toLowerCase())?'ok':'tip',s.toLowerCase().includes(st.toLowerCase())?`시작 문장 '${st}'을(를) 잘 썼어요.`:`'${o.starter}'로 시작하면 쉽게 쓸 수 있어요.`);}
+  if(o.minSent){const n=(s.match(/[.!?]+(?=\s|$)/g)||[]).length;add(n>=o.minSent?'ok':'tip',n>=o.minSent?`${n}문장으로 썼어요.`:'이유나 예를 들어 한 문장 더 붙여 보세요.');}
+  if(o.minWords){const n=s.split(/\s+/).filter(Boolean).length;if(n<o.minWords)add('tip',`조금 더 길게 써 볼까요? 지금 ${n}단어예요.`);}
+  return out;
+}
+function checksHTML(items){
+  const bad=items.filter(i=>i.k==='no').length;
+  return `<div class="row-between"><b>${bad?`고칠 곳이 ${bad}개 있어요`:'기본 점검을 모두 통과했어요!'}</b></div>
+  <ul class="chk">${items.map(i=>`<li class="${i.k}"><span class="mk">${i.k==='ok'?'✓':i.k==='no'?'✕':'+'}</span><span>${esc(i.msg)}</span></li>`).join('')}</ul>
+  <p class="small muted">스스로 확인해 보세요 · 주어와 동사가 있나요? 시제(어제 일은 과거형)가 맞나요? 소리 내어 읽어 보면 어색한 곳이 잘 보여요.</p>`;
+}
+function checkMine(id){
+  const w=S.W.get(id),my=S.my;if(!w||!my)return;const inp=$('#my-in');my.txt=inp?inp.value.trim():my.txt.trim();
+  if(!my.txt){toast('먼저 문장을 써 보세요.');return;}
+  const hw=hasWordIn(my.txt,w);
+  my.res={hasWord:!!hw,items:[hw?{k:'ok',msg:`'${w.w}'를 넣어서 썼어요.`}:{k:'no',msg:`'${w.w}'가 문장에 없어요. 꼭 넣어 주세요.`},...checkWriting(my.txt)]};
+  render();
 }
 function spellSent(w,q){
   const list=[{ex:w.ex,ko:w.ko},...(w.exs||[])].filter(x=>x&&x.ex&&/\[[^\]]+\]/.test(x.ex));
@@ -824,16 +826,10 @@ function renderSpeak(){
       <p class="muted">${esc(q.ko)}</p>
       <div class="notice small">이렇게 시작해 보세요 · <span class="en">${esc(q.st)}</span></div>
       <textarea class="field en" id="qa-in" rows="3" placeholder="Write or speak your answer in English" autocapitalize="sentences" spellcheck="false">${esc(sp.qaTxt)}</textarea>
-      <div class="btn-row">${S.sampler?`<button class="btn primary" data-act="qa-check" ${sp.qaBusy?'disabled':''}>${sp.qaBusy?'선생님이 보는 중…':'첨삭 받기'}</button>`:''}<button class="btn" data-act="qa-ex">예시 답 보기</button><button class="btn" data-act="qa-next">다음 질문</button></div>
+      <div class="btn-row"><button class="btn primary" data-act="qa-check">점검하기</button><button class="btn" data-act="qa-ex">예시 답 보기</button><button class="btn" data-act="qa-next">다음 질문</button></div>
       ${sp.err?`<p class="small" style="color:var(--bad)">${esc(sp.err)}</p>`:''}
       ${r&&r.kind==='ex'?`<div class="day-box"><span class="lbl">예시 답</span><p class="en" style="font-size:16px">${esc(q.ex)} ${spk(q.ex,true)}</p></div>`:''}
-      ${r&&r.kind==='fix'?`<div class="day-box">
-        <div class="row-between"><span class="stars" aria-label="별 ${r.stars}개">${'★'.repeat(r.stars)}${'☆'.repeat(3-r.stars)}</span><span class="small muted">${r.stars===3?'아주 잘했어요':r.stars===2?'좋아요, 조금만 다듬어요':'같이 고쳐 봐요'}</span></div>
-        ${r.good?`<p><span class="lbl">잘한 점</span>${esc(r.good)}</p>`:''}
-        ${r.fixes.length?r.fixes.map(f=>`<div class="fix"><span class="en"><s>${esc(f.from)}</s> → <b>${esc(f.to)}</b></span><span class="muted">${esc(f.why)}</span></div>`).join(''):'<p class="small muted">고칠 곳이 없어요!</p>'}
-        ${r.corrected?`<div><span class="lbl">고친 문장</span><p class="en">${esc(r.corrected)} ${spk(r.corrected,true)}</p></div>`:''}
-        ${r.better?`<div><span class="lbl">더 자연스러운 답</span><p class="en">${esc(r.better)} ${spk(r.better,true)}</p></div>`:''}
-      </div>`:''}
+      ${r&&r.kind==='check'?`<div class="day-box">${checksHTML(r.items)}${TTS&&sp.qaTxt?`<div><button class="btn" data-act="say" data-t="${esc(sp.qaTxt)}">내 답 듣기</button></div>`:''}<div><span class="lbl">예시 답과 비교해 보세요</span><p class="en" style="font-size:16px">${esc(q.ex)} ${spk(q.ex,true)}</p></div></div>`:''}
     </section>`;
   }else{
     const open=sp.open&&S.dlg.find(d=>d.id===sp.open);
@@ -852,15 +848,14 @@ function renderSpeak(){
         ${open.src==='base'?'':`<div><button class="btn danger" data-act="dl-del" data-id="${open.id}">이 대화 지우기</button></div>`}
       </section>`;
     }else{
+      const scenes=[...SCENES,...new Set(S.dlg.map(d=>d.scene).filter(x=>x&&!SCENES.includes(x)))];
+      const list=S.dlg.filter(d=>sp.scene==='all'||d.scene===sp.scene);
       body=`<section class="card">
-        <span class="sec-title">상황 대화 · 배운 단어로 짧은 대화 만들기</span>
-        <div class="scenes">${SCENES.map(s=>`<button data-act="scene" data-s="${esc(s)}" aria-pressed="${sp.scene===s}">${esc(s)}</button>`).join('')}</div>
-        <input class="field" id="scene-in" placeholder="직접 입력 (예: 친구 생일 파티 초대하기)" value="${esc(sp.custom)}">
-        ${S.sampler?`<div><button class="btn primary" data-act="dl-make" ${sp.busy?'disabled':''}>${sp.busy?'대화를 만드는 중…':'대화 만들기'}</button></div>`:'<p class="small muted">새 대화 만들기는 Claude 안에서 연 단어장에서만 쓸 수 있어요. 아래 저장한 대화는 여기서도 듣고 연습할 수 있어요.</p>'}
-        ${sp.err?`<p class="small" style="color:var(--bad)">${esc(sp.err)}</p>`:''}
+        <span class="sec-title">상황 대화 · 듣고 A·B 역할을 나눠 말해 보기</span>
+        <div class="scenes"><button data-act="scene" data-s="all" aria-pressed="${sp.scene==='all'}">전체</button>${scenes.map(s=>`<button data-act="scene" data-s="${esc(s)}" aria-pressed="${sp.scene===s}">${esc(s)}</button>`).join('')}</div>
       </section>
-      <section class="card" style="gap:4px"><span class="sec-title">저장한 대화 (${S.dlg.length})</span>
-        ${S.dlg.length?S.dlg.map(d=>`<button class="dlg-item" data-act="dl-open" data-id="${d.id}"><span><b>${esc(d.title)}</b><br><span class="small muted">${esc(d.scene||'')} · ${(d.lines||[]).length}줄</span></span><span class="muted">›</span></button>`).join(''):'<p class="small muted" style="padding:8px 0">아직 저장한 대화가 없어요. 위에서 상황을 고르고 만들어 보세요.</p>'}
+      <section class="card" style="gap:4px"><span class="sec-title">${sp.scene==='all'?'모든 대화':esc(sp.scene)} (${list.length})</span>
+        ${list.length?list.map(d=>`<button class="dlg-item" data-act="dl-open" data-id="${d.id}"><span><b>${esc(d.title)}</b><br><span class="small muted">${esc(d.scene||'')} · ${(d.lines||[]).length}줄</span></span><span class="muted">›</span></button>`).join(''):'<p class="small muted" style="padding:8px 0">이 상황의 대화가 아직 없어요.</p>'}
       </section>`;
     }
   }
@@ -896,16 +891,16 @@ function renderManage(){
   ${editBox}
   <section class="card">
     <span class="sec-title">단어 추가</span>
-    <p class="small muted">한 줄에 단어 하나씩 적어요(한 번에 45개까지). 교과서 단원 단어라면 단원을 골라 주세요. 이미 있는 단어는 그 단원 표시만 붙여요. 철자가 틀리거나 went처럼 바뀐 모양이면 기본형으로 고쳐서 채워요.</p>
-    <textarea class="field en" id="add-in" rows="4" placeholder="borrow&#10;although&#10;be good at" autocapitalize="off" spellcheck="false">${esc(mg.txt)}</textarea>
+    <p class="small muted">한 줄에 하나씩 <b class="en">영어 = 뜻</b> 모양으로 적어요. 예문도 넣고 싶으면 뒤에 <b class="en">= 예문 = 해석</b>을 이어서 적어요. 교과서 단원 단어라면 단원을 골라 주세요. 이미 있는 단어는 그 단원 표시만 붙여요.</p>
+    <textarea class="field en" id="add-in" rows="4" placeholder="borrow = 빌리다&#10;although = 비록 ~이지만&#10;be good at = ~을 잘하다 = I am good at math. = 나는 수학을 잘해." autocapitalize="off" spellcheck="false">${esc(mg.txt)}</textarea>
     <div class="btn-row" style="align-items:center"><select class="field" id="add-gr" style="width:auto"><option value="1"${mg.gr==1?' selected':''}>중1 단어로</option><option value="2"${mg.gr==2?' selected':''}>중2 단어로</option><option value="3"${mg.gr==3?' selected':''}>중3 단어로</option><option value="0"${mg.gr==0?' selected':''}>추가 단어로</option></select>
     <select class="field" id="add-ls" style="width:auto" aria-label="교과서 단원"><option value="">교과서 단원 없음</option>${TB.lessons.map(([k,l])=>`<option value="${k}"${mg.ls===k?' selected':''}>미래엔 ${l}</option>`).join('')}</select>
-    ${S.sampler?`<button class="btn primary" data-act="add-fill" ${mg.busy?'disabled':''}>${mg.busy?'뜻과 예문을 채우는 중…':'자동 채우기'}</button>`:'<button class="btn primary" data-act="add-manual">직접 입력하기</button>'}</div>
+    <button class="btn primary" data-act="add-parse">미리 보기</button></div>
     ${mg.err?`<p class="small" style="color:var(--bad)">${esc(mg.err)}</p>`:''}
     ${mg.dups.length?`<p class="small muted">${mg.ls?lsName(mg.ls)+' 표시만 붙인 단어':'이미 있는 단어라 뺐어요'}: <span class="en">${mg.dups.map(esc).join(', ')}</span></p>`:''}
-    ${pv&&pv.length?`<div class="preview">${pv.map((w,i)=>`<label class="pv"><input type="checkbox" data-pv="${i}" ${w.on?'checked':''}><span><span class="en">${esc(w.w)}</span> <span class="muted small">${esc(posLabel(w.pos))} · ${esc(w.ipa?'/'+w.ipa+'/':'')} ${esc(w.kp||'')}</span><br><b>${esc(w.m)}</b><p class="en">${exHTML(w.ex)}</p><p>${esc(w.ko)}</p>${w.note?`<p>${esc(w.note)}</p>`:''}</span></label>`).join('')}
+    ${pv&&pv.length?`<div class="preview">${pv.map((w,i)=>`<label class="pv"><input type="checkbox" data-pv="${i}" ${w.on?'checked':''}><span><span class="en">${esc(w.w)}</span> <span class="muted small">${[posLabel(w.pos),w.ipa?'/'+w.ipa+'/':'',w.kp].filter(Boolean).map(esc).join(' · ')}</span><br><b>${esc(w.m)}</b><p class="en">${exHTML(w.ex)}</p><p>${esc(w.ko)}</p>${w.note?`<p>${esc(w.note)}</p>`:''}</span></label>`).join('')}
       <div class="btn-row"><button class="btn primary" data-act="add-save">고른 단어 저장 (${pv.filter(x=>x.on).length})</button><button class="btn" data-act="add-cancel">취소</button></div>
-      <p class="small muted">자동으로 채운 단어는 '확인 필요' 표시가 붙어요. 내용을 보고 확인해 주세요.</p></div>`:''}
+      <p class="small muted">발음기호, 품사, 분류는 저장한 뒤 '단어 찾아서 고치기'에서 더 채울 수 있어요.</p></div>`:''}
   </section>
   ${unchecked.length?`<section class="card" style="gap:4px"><span class="sec-title">확인이 필요한 단어 (${unchecked.length})</span>
     ${unchecked.map(w=>`<div class="res-item"><span><span class="en">${esc(w.w)}</span> <span class="muted">${esc(w.m)}</span></span><span class="btn-row"><button class="btn" data-act="edit" data-id="${w.id}">고치기</button><button class="btn soft" data-act="chk" data-id="${w.id}">확인 완료</button></span></div>`).join('')}</section>`:''}
@@ -1211,79 +1206,42 @@ async function backup(){
   catch(e){if(e&&e.code==='declined')toast('백업을 취소했어요.');else toast('백업 파일을 저장하지 못했어요.');}
 }
 
-/* ---------- Claude helpers ---------- */
-async function askJSON(prompt){return await S.sampler.json(prompt,{modelTier:'default'});}
-function sampleErr(e){if(!e)return '잠시 후 다시 시도해 주세요.';if(e.code==='not_granted')return 'Claude 사용이 허락되지 않았어요.';if(e.code==='rate_limited')return '요청이 많아요. 잠시 후 다시 시도해 주세요.';if(e.code==='invalid_json')return '답을 정리하지 못했어요. 다시 시도해 주세요.';return '잠시 후 다시 시도해 주세요.';}
-
-async function fillWords(){
+/* ---------- adding words ---------- */
+// each line: english = meaning [= example = translation]
+function parseWords(){
   const mg=S.mg;const inp=$('#add-in');mg.txt=inp?inp.value:mg.txt;
-  const lines=[...new Set(mg.txt.split(/\n|,/).map(x=>x.trim()).filter(Boolean))];
-  if(!lines.length){mg.err='추가할 단어를 적어 주세요.';render();return;}
-  const have=new Set(allWords().map(w=>w.w.toLowerCase()));
-  mg.dups=lines.filter(x=>have.has(x.toLowerCase()));
-  if(mg.ls&&mg.dups.length){const n=tagLesson(mg.dups,mg.ls);if(n)toast(`이미 있는 ${n}개 단어에 ${lsName(mg.ls)} 표시를 붙였어요.`);}
-  const todo=lines.filter(x=>!have.has(x.toLowerCase())).slice(0,45);
-  if(!todo.length){mg.err='';mg.preview=null;render();return;}
-  mg.busy=true;mg.err='';render();
-  const out=[];
-  try{for(let k=0;k<todo.length;k+=15){const part=todo.slice(k,k+15);
-  const prompt=`너는 한국 중학생을 가르치는 영어 선생님이다. 아래 영어 단어(또는 표현)마다 단어장 카드를 채워라.
-${CARD_RULES}
-단어 목록:
-${part.join('\n')}`;
-    const r=await askJSON(prompt);
-    out.push(...(Array.isArray(r)?r:[]).filter(x=>x&&typeof x.w==='string'&&x.w.trim()&&x.m));}
-  }catch(e){mg.err=sampleErr(e)+(out.length?' 채운 단어까지만 보여 드려요.':'');}
-  if(out.length){mg.preview=out.map(x=>({...normCard(x),on:!have.has(String(x.w).trim().toLowerCase())}));}
-  else if(!mg.err)mg.err='채울 수 있는 단어가 없었어요. 철자를 확인해 주세요.';
-  mg.busy=false;render();
+  const rows=mg.txt.split('\n').map(x=>x.trim()).filter(Boolean);
+  if(!rows.length){mg.err='추가할 단어를 적어 주세요.';mg.preview=null;render();return;}
+  const have=new Set(allWords().map(w=>w.w.toLowerCase())),seen=new Set(),cards=[],bad=[],dups=[];
+  for(const r of rows){const parts=r.split(/\s*=\s*/).map(x=>x.trim());const w=parts[0],m=parts[1]||'';
+    if(!w)continue;const k=w.toLowerCase();if(seen.has(k))continue;seen.add(k);
+    if(have.has(k)){dups.push(w);continue;}
+    if(!m){bad.push(w);continue;}
+    cards.push({...normCard({w,m,ex:parts[2]||'',ko:parts[3]||''}),on:true});}
+  mg.dups=dups;
+  if(mg.ls&&dups.length){const n=tagLesson(dups,mg.ls);if(n)toast(`이미 있는 ${n}개 단어에 ${lsName(mg.ls)} 표시를 붙였어요.`);}
+  mg.err=bad.length?`뜻이 없어서 뺀 줄이 있어요: ${bad.join(', ')} · '영어 = 뜻' 모양으로 적어 주세요.`:'';
+  mg.preview=cards.length?cards.slice(0,100):null;
+  render();
 }
-const CARD_RULES=`규칙:
-- 철자가 틀렸거나 활용형(went, apples 등)이면 기본형으로 바로잡아 w에 넣는다.
-- m: 한국어 뜻, 짧게. 뜻이 여럿이면 ; 로 2개까지.
-- pos: n, v, adj, adv, prep, conj, pron 중 하나. 두 품사면 'n·v'처럼 쓴다.
-- ipa: 미국식 발음기호(슬래시 없이). kp: 한글로 적은 발음.
-- c: school, daily, people, feel, action, describe, time, nature, society, func 중 하나.
-- col: 자주 쓰는 짧은 덩어리 표현. cm: 그 해석.
-- ex: 중학교 교과서 수준의 짧은 예문(12단어 이하). 외울 단어를 [ ]로 감싼다. ko: 예문의 자연스러운 한국어 해석(반말).
-- note: 중학생이 자주 틀리는 점 한 줄. 없으면 빈 문자열.
-- forms: 불규칙 동사면 '과거 - 과거분사', 아니면 빈 문자열.
-JSON 배열만 답한다. 예: [{"w":"borrow","pos":"v","ipa":"ˈbɑːroʊ","kp":"바로우","m":"빌리다","c":"action","col":"borrow a book","cm":"책을 빌리다","ex":"Can I [borrow] your pen?","ko":"네 펜 좀 빌려도 돼?","note":"","forms":""}]`;
 function bracketIt(ex,w){if(!ex||/\[[^\]]+\]/.test(ex))return ex;const words=w.split(/\s+/).filter(x=>!/^(be|~|sb|sth|a|the)$/i.test(x));if(!words.length)return ex;const re=new RegExp('\\b('+words.map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('\\w*\\s+(?:\\w+\\s+)?')+'\\w*)','i');return re.test(ex)?ex.replace(re,'[$1]'):ex;}
 function normCard(x){const w=String(x.w).trim();return {w,pos:String(x.pos||''),ipa:String(x.ipa||'').replace(/^\/|\/$/g,''),kp:String(x.kp||''),m:String(x.m||''),c:CAT[x.c]?x.c:'daily',col:String(x.col||''),cm:String(x.cm||''),ex:bracketIt(String(x.ex||''),w),ko:String(x.ko||''),note:String(x.note||''),forms:String(x.forms||'')};}
 function tagLesson(words,ls){let n=0;const keys=new Set(words.map(x=>x.toLowerCase()));
   for(const w of allWords()){if(!keys.has(w.w.toLowerCase())||(w.lss||[]).includes(ls))continue;saveWordField(w,{lss:[...(w.lss||[]),ls]});n++;}return n;}
 function nextN(){return Math.max(1000,...[...S.W.values()].map(w=>w.n||0));}
-function addUserWord(f,gr){const id='u'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);const w={...f,gr,n:nextN()+1,chk:false,at:Date.now()};S.W.set(id,{...w,id,src:'user'});saveNow('words/'+id,w);return id;}
+function addUserWord(f,gr,chk=false){const id='u'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);const w={...f,gr,n:nextN()+1,chk,at:Date.now()};S.W.set(id,{...w,id,src:'user'});saveNow('words/'+id,w);return id;}
 const inBook=en=>{const k=String(en||'').trim().toLowerCase();return allWords().some(w=>w.w.toLowerCase()===k);};
-async function addFromDialog(d,list){
+function addFromDialog(d,list){
   list=list.filter(x=>x.en&&!inBook(x.en));if(!list.length){toast('이미 단어장에 있어요.');return;}
-  const key=list.length>1?'all':list[0].en;S.ptBusy=key;render();
   const lineFor=en=>{const ks=en.toLowerCase().split(/\s+/).filter(x=>!/^(be|~|sb|sth|a|the)$/.test(x));const l=(d.lines||[]).find(l=>ks.every(k=>l.en.toLowerCase().includes(k)));return l||null;};
-  let cards=null;
-  if(S.sampler){
-    const prompt=`너는 한국 중학생을 가르치는 영어 선생님이다. 아래 표현마다 단어장 카드를 채워라. w는 주어진 표현 그대로(기본형) 쓰고, m은 주어진 뜻을 다듬어 쓴다. 예문은 대화 문장이 있으면 그 문장을 그대로 쓰고 표현 부분을 [ ]로 감싼다.
-${CARD_RULES}
-표현 목록:
-${list.map(x=>{const l=lineFor(x.en);return `- ${x.en} (뜻: ${x.ko||''})${l?` / 대화 문장: ${l.en} / 해석: ${l.ko}`:''}`;}).join('\n')}`;
-    try{const r=await askJSON(prompt);cards=(Array.isArray(r)?r:[]).filter(x=>x&&typeof x.w==='string'&&x.w.trim()&&x.m).map(normCard);}catch(e){cards=null;}
-  }
-  if(!cards||!cards.length)cards=list.map(x=>{const l=lineFor(x.en);return normCard({w:x.en,m:x.ko,c:'daily',ex:l?l.en:'',ko:l?l.ko:''});});
-  let n=0;for(const c of cards){if(inBook(c.w))continue;addUserWord(c,0);n++;}
-  S.ptBusy=null;toast(n?`${n}개를 단어장에 넣었어요. 오늘 학습에 새 단어로 나와요.`:'이미 단어장에 있어요.');render();
+  const cards=list.map(x=>{const l=lineFor(x.en);return normCard({w:x.en,m:x.ko,c:'daily',ex:l?l.en:'',ko:l?l.ko:''});});
+  let n=0;for(const c of cards){if(inBook(c.w))continue;addUserWord(c,0,true);n++;}
+  toast(n?`${n}개를 단어장에 넣었어요. 오늘 학습에 새 단어로 나와요.`:'이미 단어장에 있어요.');render();
 }
 function saveAdded(){
   const mg=S.mg;if(!mg.preview)return;const pick=mg.preview.filter(x=>x.on);if(!pick.length){toast('저장할 단어를 골라 주세요.');return;}
-  for(const x of pick){const {on,...f}=x;if(mg.ls)f.lss=[mg.ls];addUserWord(f,Number(mg.gr));}
+  for(const x of pick){const {on,...f}=x;if(mg.ls)f.lss=[mg.ls];addUserWord(f,Number(mg.gr),true);}
   mg.preview=null;mg.txt='';mg.dups=[];toast(`${pick.length}개 단어를 저장했어요.`);render();
-}
-function manualAdd(){
-  const mg=S.mg;const inp=$('#add-in');mg.txt=inp?inp.value:mg.txt;
-  const first=mg.txt.split('\n').map(x=>x.trim()).find(Boolean);if(!first){mg.err='추가할 단어를 적어 주세요.';render();return;}
-  if(allWords().some(w=>w.w.toLowerCase()===first.toLowerCase())){mg.err='이미 있는 단어예요.';render();return;}
-  let n=Math.max(1000,...[...S.W.values()].map(w=>w.n||0));const id='u'+Date.now().toString(36);
-  const w={w:first,m:'',pos:'',ipa:'',kp:'',c:'daily',col:'',cm:'',ex:'',ko:'',note:'',forms:'',gr:Number(mg.gr),n:n+1,chk:false,at:Date.now()};
-  S.W.set(id,{...w,id,src:'user'});saveNow('words/'+id,w);mg.edit=id;mg.txt=mg.txt.replace(first,'').trim();mg.err='';render();toast('뜻과 예문을 채워 주세요.');
 }
 function saveEdit(){
   const w=S.W.get(S.mg.edit);if(!w)return;const f={};
@@ -1300,44 +1258,12 @@ function delWord(id){
   S.mg.edit=null;render();
   toast(`'${w.w}'를 지웠어요.`,()=>{if(w.src==='base')saveWordField(w,{hid:false});else{S.W.set(id,w);const {id:_,src,...rest}=w;saveNow('words/'+id,rest);}render();});
 }
-async function makeDialog(){
-  const sp=S.sp;const ci=$('#scene-in');sp.custom=ci?ci.value.trim():sp.custom;const scene=sp.custom||sp.scene;
-  let pool=learnedWords();if(pool.length<8)pool=deckWords();
-  const words=shuffle(pool.slice()).slice(0,40).map(w=>w.w);
-  sp.busy=true;sp.err='';render();
-  const prompt=`너는 한국 중학생을 가르치는 영어 선생님이다. 상황: ${scene}.
-아래 단어 목록에서 3~5개를 자연스럽게 골라 써서 A와 B의 짧은 영어 대화를 만들어라.
-- 6~8줄. 한 줄은 12단어 이하. 중학교 교과서 수준의 쉬운 표현.
-- 각 줄에 자연스러운 한국어 해석(반말).
-- points: 대화에서 꼭 익힐 표현 2~3개와 뜻.
-- used: 대화에 실제로 쓴 목록 단어.
-JSON만 답한다: {"title":"짧은 한국어 제목","lines":[{"who":"A","en":"...","ko":"..."}],"points":[{"en":"...","ko":"..."}],"used":["..."]}
-단어 목록: ${words.join(', ')}`;
-  try{
-    const r=await askJSON(prompt);
-    const lines=(r&&Array.isArray(r.lines)?r.lines:[]).filter(l=>l&&l.en).map(l=>({who:l.who==='B'?'B':'A',en:String(l.en),ko:String(l.ko||'')}));
-    if(!lines.length)throw {code:'invalid_json'};
-    const id='d'+Date.now().toString(36);
-    const d={title:String(r.title||scene),scene,lines,points:(Array.isArray(r.points)?r.points:[]).filter(p=>p&&p.en).map(p=>({en:String(p.en),ko:String(p.ko||'')})),used:(Array.isArray(r.used)?r.used:[]).map(String),at:Date.now()};
-    saveNow('dialogs/'+id,d);S.dlg.unshift({...d,id});sp.open=id;sp.role=null;sp.shown=[];
-  }catch(e){sp.err=sampleErr(e);}
-  sp.busy=false;render();
-}
-async function checkQA(){
-  const sp=S.sp;const inp=$('#qa-in');sp.qaTxt=inp?inp.value.trim():sp.qaTxt;
+function checkQA(){
+  const sp=S.sp;const inp=$('#qa-in');sp.qaTxt=inp?inp.value.trim():sp.qaTxt.trim();
   if(!sp.qaTxt){sp.err='먼저 영어로 답을 써 보세요.';render();return;}
   const q=QUESTIONS[sp.qa%QUESTIONS.length];
-  sp.qaBusy=true;sp.err='';render();
-  const prompt=`너는 한국 중학생을 가르치는 친절하고 꼼꼼한 영어 선생님이다. 영어 말하기·쓰기 수행평가 연습을 첨삭한다.
-질문: ${q.en}
-학생 답: ${sp.qaTxt}
-학생 수준에 맞게 첨삭해라. 문법, 단어 선택, 대문자·문장부호를 보고, 칭찬을 먼저 한다.
-JSON만 답한다: {"stars":1~3 정수(3=아주 좋음),"good":"잘한 점 한 문장(한국어)","fixes":[{"from":"틀린 부분","to":"고친 표현","why":"짧은 한국어 설명"}],"corrected":"학생 답을 최소한으로 고친 문장","better":"중학생 수준의 자연스러운 예시 답 2~3문장"}
-fixes는 최대 4개, 틀린 곳이 없으면 빈 배열.`;
-  try{const r=await askJSON(prompt);
-    sp.qaRes={kind:'fix',stars:Math.max(1,Math.min(3,Number(r&&r.stars)||2)),good:String(r&&r.good||''),fixes:(r&&Array.isArray(r.fixes)?r.fixes:[]).slice(0,4).map(f=>({from:String(f.from||''),to:String(f.to||''),why:String(f.why||'')})),corrected:String(r&&r.corrected||''),better:String(r&&r.better||'')};}
-  catch(e){sp.err=sampleErr(e);}
-  sp.qaBusy=false;render();
+  sp.err='';sp.qaRes={kind:'check',items:checkWriting(sp.qaTxt,{starter:q.st,minSent:2,minWords:10})};
+  render();
 }
 
 /* ---------- events ---------- */
@@ -1377,18 +1303,16 @@ const A={
   'edit-save'(){saveEdit();},
   'edit-del'(){delWord(S.mg.edit);},
   chk(el){const w=S.W.get(el.dataset.id);if(!w)return;saveWordField(w,{chk:true});toast('확인했어요');render();},
-  'add-fill'(){fillWords();},
+  'add-parse'(){parseWords();},
   'imp-go'(){importBackup();},
   'imp-cancel'(){S.imp=null;render();},
   'pt-add'(el){const d=S.dlg.find(x=>x.id===S.sp.open);if(!d)return;const p=d.points[Number(el.dataset.i)];if(p)addFromDialog(d,[p]);},
   'pt-all'(){const d=S.dlg.find(x=>x.id===S.sp.open);if(d)addFromDialog(d,d.points);},
-  'ex-more'(el){moreExamples(el.dataset.id);},
   'ex-del'(el){const w=S.W.get(el.dataset.id);if(!w)return;const i=Number(el.dataset.i);const old=(w.exs||[]).slice();const exs=old.filter((_,k)=>k!==i);saveWordField(w,{exs});render();toast('예문을 지웠어요.',()=>{saveWordField(w,{exs:old});render();});},
-  'my-open'(el){S.my={id:el.dataset.id,txt:'',res:null,busy:false,err:''};render();setTimeout(()=>{const t=$('#my-in');if(t)t.focus();},30);},
+  'my-open'(el){S.my={id:el.dataset.id,txt:'',ko:'',res:null};render();setTimeout(()=>{const t=$('#my-in');if(t)t.focus();},30);},
   'my-close'(){S.my=null;render();},
   'my-check'(el){checkMine(el.dataset.id);},
-  'my-save'(el){const w=S.W.get(el.dataset.id),r=S.my&&S.my.res;if(!w||!r||!r.corrected)return;const exs=[...(w.exs||[]),{ex:r.corrected,ko:r.ko,mine:true}].slice(-9);saveWordField(w,{exs});S.my=null;toast('내 문장을 예문에 넣었어요.');render();},
-  'add-manual'(){manualAdd();},
+  'my-save'(el){const w=S.W.get(el.dataset.id),my=S.my;if(!w||!my)return;const ex=hasWordIn(my.txt,w);if(!ex){toast(`문장에 '${w.w}'를 넣어 주세요.`);return;}const exs=[...(w.exs||[]),{ex,ko:(my.ko||'').trim(),mine:true}].slice(-9);saveWordField(w,{exs});S.my=null;toast('내 문장을 예문에 넣었어요.');render();},
   'add-save'(){saveAdded();},
   'add-cancel'(){S.mg.preview=null;render();},
   quit(){closeQuiz();},
@@ -1412,8 +1336,7 @@ const A={
   'qa-ex'(){S.sp.qaRes={kind:'ex'};const inp=$('#qa-in');if(inp)S.sp.qaTxt=inp.value;render();},
   'qa-next'(){S.sp.qa++;S.sp.qaTxt='';S.sp.qaRes=null;S.sp.err='';render();},
   'qa-check'(){checkQA();},
-  scene(el){S.sp.scene=el.dataset.s;S.sp.custom='';render();},
-  'dl-make'(){makeDialog();},
+  scene(el){S.sp.scene=el.dataset.s;render();},
   'dl-open'(el){S.sp.open=el.dataset.id;S.sp.role=null;S.sp.shown=[];render();window.scrollTo(0,0);},
   'dl-back'(){S.sp.open=null;try{speechSynthesis.cancel();}catch(e){}render();},
   'dl-ko'(){S.sp.ko=!S.sp.ko;render();},
@@ -1431,8 +1354,8 @@ document.addEventListener('input',e=>{
   else if(t.id==='add-in')S.mg.txt=t.value;
   else if(t.id==='sh-in')S.sp.txt=t.value;
   else if(t.id==='qa-in')S.sp.qaTxt=t.value;
-  else if(t.id==='scene-in')S.sp.custom=t.value;
-  else if(t.id==='my-in'&&S.my)S.my.txt=t.value;
+  else if(t.id==='my-in'&&S.my){S.my.txt=t.value;}
+  else if(t.id==='my-ko'&&S.my)S.my.ko=t.value;
   else if(t.id==='spell'&&S.quiz)S.quiz.input=t.value;
 });
 document.addEventListener('change',e=>{
