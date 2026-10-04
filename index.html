@@ -6,6 +6,14 @@
 <meta name="theme-color" content="#2747D8">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html,body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>중학 영단어장</title>
+<meta name="description" content="중학생을 위한 영어 단어 복습 앱">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="영단어장">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Lexend:wght@400;500;600;700&family=Noto+Sans:wght@400&display=swap">
@@ -96,6 +104,12 @@ mark{background:linear-gradient(transparent 38%,var(--mark) 38%,var(--mark) 92%,
 .big.soft .t{font-size:15.5px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));z-index:60;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;display:flex;gap:14px;align-items:center;max-width:calc(100% - 32px);box-shadow:var(--shadow)}
 .toast button{border:0;background:none;color:var(--mark);font-weight:700;padding:0}
+.upd{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top,0px));z-index:70;background:var(--accent);color:var(--accent-ink);padding:10px 12px 10px 16px;border-radius:12px;font-size:14px;font-weight:600;display:flex;gap:10px;align-items:center;max-width:calc(100% - 32px);box-shadow:0 6px 18px rgba(20,28,43,.25)}
+.upd button{border:0;border-radius:8px;padding:6px 10px;font-size:14px;font-weight:700;background:var(--accent-ink);color:var(--accent)}
+.upd button.x{background:none;color:var(--accent-ink);padding:6px;font-weight:500;opacity:.85}
+.install{display:flex;flex-direction:column;gap:8px;border:1px dashed var(--accent);background:var(--accent-soft)}
+.install b{font-size:15px}
+.install .share{display:inline-block;vertical-align:-3px;width:16px;height:16px}
 @media (max-width:720px){.toast{bottom:calc(84px + env(safe-area-inset-bottom,0px))}}
 .notice{padding:14px 16px;border-radius:12px;background:var(--surface2);font-size:14px}
 
@@ -343,6 +357,7 @@ textarea.field{resize:vertical;min-height:84px;line-height:1.5}
 
 <div id="sheet" hidden></div>
 <div id="toast" class="toast" hidden role="status"></div>
+<div id="upd" class="upd" hidden role="status"><span>새 버전이 있어요</span><button data-act="upd-go">새로고침</button><button class="x" data-act="upd-x" aria-label="나중에">나중에</button></div>
 
 <script>
 (function(){
@@ -621,8 +636,25 @@ function renderToday(){
       ${tile('speak','말하기 연습','따라 말하기 · 질문 답하기 · 대화',null,false)}
     </div>
   </section>
+  ${installHTML()}
   ${renderRecord()}
   ${needB?`<p class="warn-line">${lastB?'단어장을 백업한 지 30일이 지났어요.':'아직 단어장을 백업한 적이 없어요.'} · <button class="link" data-act="backup">지금 백업</button></p>`:''}`;
+}
+/* ---------- install as an app ---------- */
+// iPhone/iPad Safari may clear site data after 7 days without a visit; an app added to the home screen keeps it
+const isStandalone=()=>{try{return matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;}catch(e){return false;}};
+const isIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)||(/Macintosh/.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
+let installEvt=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=e;if(S.state==='ok'&&S.tab==='today'&&!S.quiz)render();});
+window.addEventListener('appinstalled',()=>{installEvt=null;render();});
+function installHTML(){
+  if(isStandalone()||ls.get('installHid',false))return '';
+  const shareIc='<svg class="share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 8 5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+  let how='';
+  if(isIOS())how=`<p class="small">Safari 아래(아이패드는 위)의 공유 버튼 ${shareIc} → <b>홈 화면에 추가</b>를 눌러 주세요. 홈 화면 아이콘으로 열면 인터넷이 없어도 쓸 수 있고, 공부 기록도 더 안전하게 보관돼요.</p>`;
+  else if(installEvt)how=`<p class="small">설치하면 홈 화면 아이콘으로 바로 열 수 있고, 인터넷이 없어도 쓸 수 있어요.</p><div><button class="btn primary" data-act="install">앱으로 설치하기</button></div>`;
+  else return '';
+  return `<section class="card install"><div class="row-between"><b>홈 화면에 앱으로 추가하세요</b><button class="link small" data-act="install-x">닫기</button></div>${how}</section>`;
 }
 function renderRecord(){
   const t=today(),ym=t.slice(0,7),days=S.stats.days||{};
@@ -932,6 +964,7 @@ function openSettings(){
     <div class="set-grp"><b>한 번에 풀 단어</b><div class="seg">${[10,15,20].map(n=>seg('sessionSize',n,n+'개')).join('')}</div></div>
     ${TTS?`<div class="set-grp"><b>소리</b><div class="seg">${lseg('auto',true,'정답 자동으로 읽기',ls.get('auto',true))}${lseg('auto',false,'누를 때만',ls.get('auto',true))}</div><div class="seg">${lseg('rate','n','보통 속도',ls.get('rate','n'))}${lseg('rate','s','천천히',ls.get('rate','n'))}</div><p class="small muted">소리 설정은 이 기기에만 적용돼요.</p></div>`:''}
     <div class="set-grp"><b>복습 간격</b><p class="small muted">단어마다 진행도 5칸이 있어요. 맞히면 한 칸 오르고 다음 복습이 1일 → 2일 → 4일 → 7일 → 15일 뒤로 점점 멀어져요. 5칸을 채운 뒤 또 맞히면 30일 뒤에 다시 나와요. 틀리면 두 칸 내려가고 다음 날 다시 나오며, 다시 보기 단어에 들어가요. 새 단어는 5개씩 카드로 먼저 보고, 다른 문제를 몇 개 푼 뒤에 묻고, 끝에서 한 번 더 반대 방향(우리말 → 영어)으로 물어요. 문제는 진행도에 따라 영어 → 우리말 고르기, 우리말 → 영어 고르기, 듣고 고르기, 우리말로 뜻 쓰기, 영어로 쓰기, 문장 빈칸 채우기로 바뀌어서 양쪽 방향을 모두 연습해요.</p></div>
+    ${isStandalone()?'':`<div class="set-grp"><b>앱 설치 안내</b><div class="btn-row" style="align-items:center"><button class="btn" data-act="install-show">오늘 화면에 다시 보기</button><span class="small muted">홈 화면에 추가하면 기록이 더 안전해요</span></div></div>`}
     <div class="set-grp"><b>백업</b><div class="btn-row" style="align-items:center"><button class="btn" data-act="backup">지금 백업하기</button><span class="small muted">${S.set.lastBackup?'마지막 백업 '+krDate(S.set.lastBackup):'아직 백업한 적이 없어요'}</span></div></div>
   </div></div>`;
   sh.hidden=false;
@@ -1292,6 +1325,11 @@ const A={
   'day-close'(){S.calDay=null;render();},
   'day-redo'(el){const ds=el.dataset.d;const L=(S.LOG[ds.slice(0,7)]||{days:{}}).days[ds.slice(8)];startPractice('day',((L&&L.miss)||[]).filter(id=>S.W.has(id)),krDate(ds).replace(/ \S+요일$/,'')+' 틀린 단어');},
   backup(){backup();},
+  'upd-go'(){flush();idle().then(()=>location.reload());},
+  'upd-x'(){$('#upd').hidden=true;},
+  install(){if(!installEvt)return;installEvt.prompt();installEvt.userChoice.finally(()=>{installEvt=null;render();});},
+  'install-x'(){ls.set('installHid',true);render();toast('설정 > 앱 설치 안내에서 다시 볼 수 있어요.');},
+  'install-show'(){ls.set('installHid',false);closeSheet();S.tab='today';render();window.scrollTo(0,0);},
   say(el){speak(el.dataset.t,el.dataset.r?{rate:Number(el.dataset.r)}:{});},
   reveal(el){el.hidden=true;const n=el.nextElementSibling;if(n)n.hidden=false;},
   undo(){const u=toast.undo;$('#toast').hidden=true;toast.undo=null;if(u)u();},
@@ -1379,6 +1417,22 @@ document.addEventListener('keydown',e=>{
   if(q.answered&&e.key==='Enter'){e.preventDefault();nextQ();return;}
   if(!q.answered&&q.opts&&/^[1-4]$/.test(e.key)){const i=Number(e.key)-1;if(q.opts[i]){q.pick=i;answer(!!q.opts[i].ok);}}
 });
+
+/* ---------- offline + updates ---------- */
+let lastCheck=0;
+function checkUpdate(){
+  const sw=navigator.serviceWorker&&navigator.serviceWorker.controller;if(!sw)return;
+  if(Date.now()-lastCheck<5*60000)return;lastCheck=Date.now();
+  const ch=new MessageChannel();
+  ch.port1.onmessage=e=>{const d=e.data||{};if(d.type==='checked'&&d.changed&&d.changed.length)$('#upd').hidden=false;};
+  try{sw.postMessage({type:'check'},[ch.port2]);}catch(e){}
+}
+if('serviceWorker' in navigator&&location.protocol!=='file:'){
+  navigator.serviceWorker.register('sw.js').then(()=>checkUpdate()).catch(e=>console.warn('sw',e));
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkUpdate();});
+}
+// ask the browser not to clear the learner's records when space runs low (granted silently or ignored)
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persisted().then(p=>{if(!p)navigator.storage.persist();});}catch(e){}
 
 const h=(location.hash||'').slice(1);if(['today','book','speak','manage'].includes(h))S.tab=h;
 boot();
