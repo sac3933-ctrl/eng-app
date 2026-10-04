@@ -61,6 +61,10 @@ async function checkForUpdate() {
     try {
       const res = await fetch(key, { cache: 'no-cache' });
       if (!res.ok) return;
+      // a broken words.json must never replace a working one (the app would stop opening, even offline)
+      if (path === 'words.json') {
+        try { const d = await res.clone().json(); if (!d || !Array.isArray(d.words) || !d.words.length) return; } catch (err) { return; }
+      }
       const old = await c.match(key);
       if (!same(await bodyOf(old), await bodyOf(res))) {
         if (old) changed.push(path);
